@@ -20,6 +20,12 @@
 #include "util.h"
 #include "world.h"
 
+
+//for js eval
+#include "duktape.h"
+//for js console.log
+#include "./js/duk_console.c"
+
 #define MAX_CHUNKS 8192
 #define MAX_PLAYERS 128
 #define WORKERS 4
@@ -38,6 +44,14 @@
 #define WORKER_IDLE 0
 #define WORKER_BUSY 1
 #define WORKER_DONE 2
+
+duk_context *ctx;
+
+void jsEval (char * js) {
+    duk_push_string(ctx, js);
+    duk_eval(ctx);
+    duk_pop(ctx);
+}
 
 typedef struct {
     Map map;
@@ -2018,6 +2032,8 @@ void tree(Block *block) {
     }
 }
 
+#define MAX_JS_STR_LENGTH 256
+
 void parse_command(const char *buffer, int forward) {
     char username[128] = {0};
     char token[128] = {0};
@@ -2025,6 +2041,13 @@ void parse_command(const char *buffer, int forward) {
     int server_port = DEFAULT_PORT;
     char filename[MAX_PATH_LENGTH];
     int radius, count, xc, yc, zc;
+
+    //store javascript for eval
+    char javaScript[MAX_JS_STR_LENGTH];
+    for (int i=0; i<MAX_JS_STR_LENGTH; i++) {
+        javaScript[i] = 0;
+    }
+
     if (sscanf(buffer, "/identity %128s %128s", username, token) == 2) {
         db_auth_set(username, token);
         add_message("Successfully imported identity token!");
@@ -2122,6 +2145,13 @@ void parse_command(const char *buffer, int forward) {
     }
     else if (sscanf(buffer, "/cylinder %d", &radius) == 1) {
         cylinder(&g->block0, &g->block1, radius, 0);
+    }
+    
+    //handle javascript eval
+    else if (sscanf(buffer, "/js %255c", &javaScript)) {
+        printf("attempting to eval player js \" %s \" \n", javaScript);
+        fflush(stdout);
+        jsEval(javaScript);
     }
     else if (forward) {
         client_talk(buffer);
@@ -2584,6 +2614,25 @@ void reset_model() {
 }
 
 int main(int argc, char **argv) {
+
+    //js engine startup
+    // duk_context *ctx;
+    printf("creating context\n");
+    ctx = duk_create_heap_default();
+    printf("context created\n");
+
+    if (!ctx) {
+        printf("could not create context\n");
+        fflush(stdout);
+        exit(1);
+    }
+
+    printf("[js] enabling console.log\n");
+    duk_console_init(ctx, 0 /*flags*/);
+    printf("[js] enabled console.log\n");
+    
+    jsEval("console.log('hello from duktape js');");
+
     // INITIALIZATION //
     curl_global_init(CURL_GLOBAL_DEFAULT);
     srand(time(NULL));
@@ -2959,5 +3008,8 @@ int main(int argc, char **argv) {
 
     glfwTerminate();
     curl_global_cleanup();
+
+    //js cleanup
+    duk_destroy_heap(ctx);
     return 0;
 }

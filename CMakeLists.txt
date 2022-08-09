@@ -11,7 +11,8 @@ add_executable(
     deps/lodepng/lodepng.c
     deps/noise/noise.c
     deps/sqlite/sqlite3.c
-    deps/tinycthread/tinycthread.c)
+    deps/tinycthread/tinycthread.c
+    deps/duktape-src/duktape.c)
 
 add_definitions(-std=c99 -O3)
 
@@ -22,6 +23,7 @@ include_directories(deps/lodepng)
 include_directories(deps/noise)
 include_directories(deps/sqlite)
 include_directories(deps/tinycthread)
+include_directories((deps/duktape-src))
 
 if(MINGW)
     set(CMAKE_LIBRARY_PATH ${CMAKE_LIBRARY_PATH}
