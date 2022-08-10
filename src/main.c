@@ -19,7 +19,7 @@
 #include "tinycthread.h"
 #include "util.h"
 #include "world.h"
-
+#include "stdbool.h"
 
 //for js eval
 #include "duktape.h"
@@ -47,10 +47,31 @@
 
 duk_context *ctx;
 
-void jsEval (char * js) {
-    duk_push_string(ctx, js);
-    duk_eval(ctx);
-    duk_pop(ctx);
+void duk_get_coerced_string (duk_context * ctx, duk_idx_t idx, char * out) {
+    duk_int_t type = duk_get_type(ctx, idx);
+
+    if (type == DUK_TYPE_NUMBER) {
+        duk_double_t d = duk_get_number(ctx, idx);
+        sprintf(out, "%lf", d);
+    } else if (type == DUK_TYPE_BOOLEAN) {
+        duk_bool_t b = duk_get_boolean(ctx, idx);
+        if(b) sprintf(out, "true");
+        else sprintf(out, "false");
+    } else if (type == DUK_TYPE_BUFFER) {
+        sprintf(out, "[Buffer]");
+    } else if (type == DUK_TYPE_OBJECT) {
+        sprintf(out, "[Object]");
+    } else if (type == DUK_TYPE_NULL) {
+        sprintf(out, "null");
+    } else if (type == DUK_TYPE_STRING) {
+        sprintf(out, "%s", duk_get_string(ctx, idx));
+    } else if (type == DUK_TYPE_UNDEFINED) {
+        sprintf(out, "undefined");
+    } else if (type == DUK_TYPE_LIGHTFUNC) {
+        sprintf(out, "[Function]");
+    } else {
+        sprintf(out, "unknown");
+    }
 }
 
 typedef struct {
@@ -2044,6 +2065,7 @@ void parse_command(const char *buffer, int forward) {
 
     //store javascript for eval
     char javaScript[MAX_JS_STR_LENGTH];
+    //clear the buffer just to be sure
     for (int i=0; i<MAX_JS_STR_LENGTH; i++) {
         javaScript[i] = 0;
     }
@@ -2149,9 +2171,15 @@ void parse_command(const char *buffer, int forward) {
     
     //handle javascript eval
     else if (sscanf(buffer, "/js %255c", &javaScript)) {
-        printf("attempting to eval player js \" %s \" \n", javaScript);
-        fflush(stdout);
-        jsEval(javaScript);
+        // printf("attempting to eval player js \" %s \" \n", javaScript);
+        // fflush(stdout);
+        // jsEval(javaScript);
+        
+        duk_eval_string(ctx, javaScript);
+        char coercedStr[256];
+        duk_get_coerced_string(ctx, 0, coercedStr);
+        add_message(coercedStr);
+        duk_pop(ctx);
     }
     else if (forward) {
         client_talk(buffer);
@@ -2613,16 +2641,56 @@ void reset_model() {
     g->time_changed = 1;
 }
 
-int main(int argc, char **argv) {
 
+struct xyz {
+    int x;
+    int y;
+    int z;
+};
+#define XYZp struct xyz *
+
+bool get_target_block (XYZp hitPoint) {
+    State *s = &g->players->state;
+    // int hx, hy, hz;
+    int hw = hit_test(0, s->x, s->y, s->z, s->rx, s->ry,
+        &hitPoint->x,
+        &hitPoint->y,
+        &hitPoint->z
+    );
+    if (hitPoint->x > 0 && hitPoint->y < 256 && is_destructable(hw)) {
+        return true;
+    }
+    return false;
+}
+
+static duk_ret_t js_get_target_block() {
+    struct xyz hitPoint;
+    get_target_block(&hitPoint);
+
+    duk_to_object(ctx, 0);
+
+    return 1;
+}
+
+static duk_ret_t js_set_block(duk_context *ctx) {
+  set_block(
+    duk_to_int32(ctx, 0),
+    duk_to_int32(ctx, 1),
+    duk_to_int32(ctx, 2),
+    duk_to_int32(ctx, 3)
+  );
+  return 0;
+}
+
+void init_js () {
     //js engine startup
     // duk_context *ctx;
-    printf("creating context\n");
+    printf("[js] creating context\n");
     ctx = duk_create_heap_default();
-    printf("context created\n");
+    printf("[js] created context\n");
 
     if (!ctx) {
-        printf("could not create context\n");
+        printf("[js] could not create context\n");
         fflush(stdout);
         exit(1);
     }
@@ -2631,7 +2699,13 @@ int main(int argc, char **argv) {
     duk_console_init(ctx, 0 /*flags*/);
     printf("[js] enabled console.log\n");
     
-    jsEval("console.log('hello from duktape js');");
+    duk_push_c_function(ctx, js_set_block, 4);
+    duk_put_global_string(ctx, "set_block");
+}
+
+int main(int argc, char **argv) {
+
+    init_js();
 
     // INITIALIZATION //
     curl_global_init(CURL_GLOBAL_DEFAULT);
