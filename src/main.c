@@ -2667,9 +2667,16 @@ static duk_ret_t js_get_target_block() {
     struct xyz hitPoint;
     get_target_block(&hitPoint);
 
-    duk_to_object(ctx, 0);
+    duk_push_int(ctx, hitPoint.x);
+    duk_put_prop_string(ctx, 0, "x");
 
-    return 1;
+    duk_push_int(ctx, hitPoint.y);
+    duk_put_prop_string(ctx, 0, "y");
+
+    duk_push_int(ctx, hitPoint.x);
+    duk_put_prop_string(ctx, 0, "z");
+
+    return 0;
 }
 
 static duk_ret_t js_set_block(duk_context *ctx) {
@@ -2701,6 +2708,9 @@ void init_js () {
     
     duk_push_c_function(ctx, js_set_block, 4);
     duk_put_global_string(ctx, "set_block");
+
+    duk_push_c_function(ctx, js_get_target_block, 1);
+    duk_put_global_string(ctx, "get_target_block");
 }
 
 int main(int argc, char **argv) {
