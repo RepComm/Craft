@@ -1,8 +1,14 @@
 ## Craft
 
+A forked and modified version of http://www.michaelfogleman.com/craft/
+
+Extra features in this fork:
+- JavaScript (including `/js` command ingame for live eval)
+- Command backlog (UP/DOWN keys while chatting, navigates previous commands)
+
+
 Minecraft clone for Windows, Mac OS X and Linux. Just a few thousand lines of C using modern OpenGL (shaders). Online multiplayer support is included using a Python-based server.
 
-http://www.michaelfogleman.com/craft/
 
 ![Screenshot](https://i.imgur.com/SH7wcas.png)
 
