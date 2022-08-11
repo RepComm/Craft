@@ -20,6 +20,9 @@
 #include "util.h"
 #include "world.h"
 #include "stdbool.h"
+#include "string.h"
+
+#include "./linkedlist.h"
 
 //for js eval
 #include "duktape.h"
@@ -2055,7 +2058,65 @@ void tree(Block *block) {
 
 #define MAX_JS_STR_LENGTH 256
 
+int user_cmd_log_size = 32;
+llnp user_cmd_log;// = lln_create();
+
+void user_cmd_log_push(const char * buffer) {
+    int bufferLen = strlen(buffer);
+    //duplicate the string data
+    char * bufferCopy = strdup(buffer);
+
+    if (!user_cmd_log) { //start fresh
+        user_cmd_log = lln_create();
+        user_cmd_log->value = bufferCopy;
+    } else {
+        lln_add_value(user_cmd_log, bufferCopy);
+    }
+
+    //make sure our list isn't too big and clean up data as well
+    lln_trim_end(user_cmd_log, user_cmd_log_size, true);
+}
+
+char * user_cmd_log_at(int index) {
+    if (index < 0) return "";
+    llnp node = lln_get_at(user_cmd_log, index);
+    if (node && node->value) return node->value;
+    return 0;
+}
+
+int user_cmd_current = 0;
+char * user_cmd_up () {
+    user_cmd_current ++;
+    int cmdCount = lln_get_size(user_cmd_log);
+    if (user_cmd_current >= cmdCount) user_cmd_current = cmdCount-1;
+    if (user_cmd_current < -1) user_cmd_current = -1;
+
+    // printf("user_cmd_current: %d", user_cmd_current);
+    // fflush(stdout);
+
+    return user_cmd_log_at(user_cmd_current);
+}
+char * user_cmd_down () {
+    user_cmd_current --;
+    int cmdCount = lln_get_size(user_cmd_log);
+    if (user_cmd_current >= cmdCount) user_cmd_current = cmdCount-1;
+    if (user_cmd_current < -1) user_cmd_current = -1;
+
+    // printf("user_cmd_current: %d", user_cmd_current);
+    // fflush(stdout);
+
+    return user_cmd_log_at(user_cmd_current);
+}
+void user_cmd_reset () {
+    user_cmd_current = -1;
+}
+
 void parse_command(const char *buffer, int forward) {
+
+    //save so we can re-enter previous commands like normal MC/terminals
+    //note: chat could be done this way too, but I don't think anyone uses that feature..
+    user_cmd_log_push(buffer);
+
     char username[128] = {0};
     char token[128] = {0};
     char server_addr[MAX_ADDR_LENGTH];
@@ -2236,6 +2297,13 @@ void on_key(GLFWwindow *window, int key, int scancode, int action, int mods) {
     int control = mods & (GLFW_MOD_CONTROL | GLFW_MOD_SUPER);
     int exclusive =
         glfwGetInputMode(window, GLFW_CURSOR) == GLFW_CURSOR_DISABLED;
+    
+    if (action == GLFW_RELEASE && key == GLFW_KEY_UP && g->typing) {
+        strcpy(g->typing_buffer, user_cmd_up());
+    } else if (action == GLFW_RELEASE && key == GLFW_KEY_DOWN && g->typing) {
+        strcpy(g->typing_buffer, user_cmd_down());
+    }
+
     if (action == GLFW_RELEASE) {
         return;
     }
@@ -2268,6 +2336,7 @@ void on_key(GLFWwindow *window, int key, int scancode, int action, int mods) {
                 }
             }
             else {
+                user_cmd_current = -1;
                 g->typing = 0;
                 if (g->typing_buffer[0] == CRAFT_KEY_SIGN) {
                     Player *player = g->players;
@@ -2689,7 +2758,39 @@ static duk_ret_t js_set_block(duk_context *ctx) {
   return 0;
 }
 
+Player * player_from_name(char * pname) {
+    for (int i = 0; i < g->player_count; i++) {
+        Player *player = g->players + i;
+        if (strcmp(player->name, pname)) {
+            return player;
+        }
+    }
+    return 0;
+}
+
+static duk_ret_t js_get_player_names (duk_context * ctx) {
+    //assumes first arg is an array
+
+    int arrayPointer = duk_get_top_index(ctx);
+    
+    for (int i = 0; i < g->player_count; i++) {
+        Player *player = g->players + i;
+
+        //load the player's name into the stack
+        duk_push_string(ctx, player->name);
+        //push it into the array 
+        duk_put_prop_index(ctx, arrayPointer, i);
+    }
+
+    // for (int j=0; j<10; j++) {
+    //     duk_push_string(ctx, "test");
+    //     //push it into the array 
+    //     duk_put_prop_index(ctx, arrayPointer, j);
+    // }
+}
+
 void init_js () {
+
     //js engine startup
     // duk_context *ctx;
     printf("[js] creating context\n");
@@ -2711,6 +2812,9 @@ void init_js () {
 
     duk_push_c_function(ctx, js_get_target_block, 1);
     duk_put_global_string(ctx, "get_target_block");
+
+    duk_push_c_function(ctx, js_get_player_names, 1);
+    duk_put_global_string(ctx, "get_player_names");
 }
 
 int main(int argc, char **argv) {
