@@ -1,7 +1,8 @@
 {
     "files.associations": {
         "curl.h": "c",
-        "linkedlist.h": "c"
+        "linkedlist.h": "c",
+        "client.h": "c"
     },
     "cmake.configureOnOpen": false
 }

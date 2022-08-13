@@ -6,7 +6,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
-#include "auth.h"
 #include "client.h"
 #include "config.h"
 #include "cube.h"
@@ -28,6 +27,9 @@
 #include "duktape.h"
 //for js console.log
 #include "./js/duk_console.c"
+
+//new input mechanisms
+#include "./input/input.c"
 
 #define MAX_CHUNKS 8192
 #define MAX_PLAYERS 128
@@ -1860,26 +1862,8 @@ void add_message(const char *text) {
 }
 
 void login() {
-    char username[128] = {0};
-    char identity_token[128] = {0};
-    char access_token[128] = {0};
-    if (db_auth_get_selected(username, 128, identity_token, 128)) {
-        printf("Contacting login server for username: %s\n", username);
-        if (get_access_token(
-            access_token, 128, username, identity_token))
-        {
-            printf("Successfully authenticated with the login server\n");
-            client_login(username, access_token);
-        }
-        else {
-            printf("Failed to authenticate with the login server\n");
-            client_login("", "");
-        }
-    }
-    else {
-        printf("Logging in anonymously\n");
-        client_login("", "");
-    }
+    printf("Logging in anonymously\n");
+    client_login("", "");
 }
 
 void copy() {
@@ -2401,7 +2385,20 @@ void on_middle_click() {
     }
 }
 
+static duk_ret_t js_input_is_down () {
+    duk_push_boolean(ctx, 
+        input_is_down(
+            duk_get_int(ctx, 0)
+        )
+    );
+}
+
 void on_key(GLFWwindow *window, int key, int scancode, int action, int mods) {
+
+    //new input mechanism
+    input_on_key(key, action != GLFW_RELEASE);
+
+
     int control = mods & (GLFW_MOD_CONTROL | GLFW_MOD_SUPER);
     int exclusive =
         glfwGetInputMode(window, GLFW_CURSOR) == GLFW_CURSOR_DISABLED;
@@ -3023,6 +3020,9 @@ void init_js () {
 
     duk_push_c_function(ctx, js_set_time, 1);
     duk_put_global_string(ctx, "set_time");
+
+    duk_push_c_function(ctx, js_input_is_down, 1);
+    duk_put_global_string(ctx, "input_is_down");
 
     //create a Map<string, function> for storing command callbacks that JS registers
     duk_push_object(ctx);
