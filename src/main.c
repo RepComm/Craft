@@ -2094,7 +2094,7 @@ char * user_cmd_up () {
     // printf("user_cmd_current: %d", user_cmd_current);
     // fflush(stdout);
 
-    return user_cmd_log_at(user_cmd_current);
+    return user_cmd_log_at(cmdCount-1 - user_cmd_current);
 }
 char * user_cmd_down () {
     user_cmd_current --;
@@ -2105,7 +2105,7 @@ char * user_cmd_down () {
     // printf("user_cmd_current: %d", user_cmd_current);
     // fflush(stdout);
 
-    return user_cmd_log_at(user_cmd_current);
+    return user_cmd_log_at(cmdCount-1 - user_cmd_current);
 }
 void user_cmd_reset () {
     user_cmd_current = -1;
@@ -2236,10 +2236,15 @@ void parse_command(const char *buffer, int forward) {
         // fflush(stdout);
         // jsEval(javaScript);
         
-        duk_eval_string(ctx, javaScript);
-        char coercedStr[256];
-        duk_get_coerced_string(ctx, 0, coercedStr);
-        add_message(coercedStr);
+        // duk_eval_string(ctx, javaScript);
+        if ( duk_peval_string(ctx, javaScript) != 0) {
+            add_message( duk_safe_to_string(ctx, -1) );
+        } else {
+            add_message( duk_safe_to_string(ctx, -1));
+        }
+        // char coercedStr[256];
+        // duk_get_coerced_string(ctx, 0, coercedStr);
+        // add_message(coercedStr);
         duk_pop(ctx);
     }
     else if (forward) {
@@ -2298,11 +2303,6 @@ void on_key(GLFWwindow *window, int key, int scancode, int action, int mods) {
     int exclusive =
         glfwGetInputMode(window, GLFW_CURSOR) == GLFW_CURSOR_DISABLED;
     
-    if (action == GLFW_RELEASE && key == GLFW_KEY_UP && g->typing) {
-        strcpy(g->typing_buffer, user_cmd_up());
-    } else if (action == GLFW_RELEASE && key == GLFW_KEY_DOWN && g->typing) {
-        strcpy(g->typing_buffer, user_cmd_down());
-    }
 
     if (action == GLFW_RELEASE) {
         return;
@@ -2318,6 +2318,18 @@ void on_key(GLFWwindow *window, int key, int scancode, int action, int mods) {
     if (action != GLFW_PRESS) {
         return;
     }
+
+    //handle command backlog
+    if (key == GLFW_KEY_UP && g->typing) {
+        char * output = user_cmd_up();
+        if (output == 0) output = "";
+        strcpy(g->typing_buffer, output);
+    } else if (key == GLFW_KEY_DOWN && g->typing) {
+        char * output = user_cmd_down();
+        if (output == 0) output = "";
+        strcpy(g->typing_buffer, output);
+    }
+
     if (key == GLFW_KEY_ESCAPE) {
         if (g->typing) {
             g->typing = 0;
@@ -2336,7 +2348,9 @@ void on_key(GLFWwindow *window, int key, int scancode, int action, int mods) {
                 }
             }
             else {
+                //reset command backlog location
                 user_cmd_current = -1;
+
                 g->typing = 0;
                 if (g->typing_buffer[0] == CRAFT_KEY_SIGN) {
                     Player *player = g->players;
@@ -2350,6 +2364,7 @@ void on_key(GLFWwindow *window, int key, int scancode, int action, int mods) {
                 }
                 else {
                     client_talk(g->typing_buffer);
+                    add_message(g->typing_buffer);
                 }
             }
         }
@@ -2748,6 +2763,33 @@ static duk_ret_t js_get_target_block() {
     return 0;
 }
 
+static duk_ret_t js_hit_test () {
+    // int hit_test(
+    
+    int previous = duk_to_int32(ctx, 0);
+    float x = duk_to_number(ctx, 1);
+    float y = duk_to_number(ctx, 2);
+    float z = duk_to_number(ctx, 3);
+    float rx = duk_to_number(ctx, 4);
+    float ry = duk_to_number(ctx, 5);
+    //6 - object 'out'
+
+    int bx, by, bz, bt;
+
+    bt = hit_test(previous, x, y, z, rx, ry, &bx, &by, &bz);
+
+    duk_push_int(ctx, bx);
+    duk_put_prop_string(ctx, 6, "x");
+    duk_push_int(ctx, by);
+    duk_put_prop_string(ctx, 6, "y");
+    duk_push_int(ctx, bz);
+    duk_put_prop_string(ctx, 6, "z");
+    duk_push_int(ctx, bt);
+    duk_put_prop_string(ctx, 6, "type");
+
+    return 0;
+}
+
 static duk_ret_t js_set_block(duk_context *ctx) {
   set_block(
     duk_to_int32(ctx, 0),
@@ -2789,6 +2831,49 @@ static duk_ret_t js_get_player_names (duk_context * ctx) {
     // }
 }
 
+static duk_ret_t js_log (duk_context * ctx) {
+    duk_int_t type = duk_get_type(ctx, 0);
+    char * msg;
+    if (type == DUK_TYPE_OBJECT) {
+        msg = duk_json_encode(ctx, 0);
+    } else if (type == DUK_TYPE_STRING) {
+        msg = duk_get_string(ctx, 0);
+    } else {
+        msg = duk_safe_to_string(ctx, 0);
+    }
+    if (msg == 0) return 0;
+    add_message(msg);
+
+    return 0;
+}
+
+static duk_ret_t js_set_player_name(duk_context * ctx) {
+    int playerIndex = duk_get_int(ctx, 0);
+    if (playerIndex >= g->player_count) {
+        add_message("Index is greater than player count!");
+        return 0;
+    }
+    char * playerName = duk_get_string(ctx, 1);
+
+    Player * player = g->players + playerIndex;
+    if (player != 0 && playerName != 0) {
+        strcpy(player->name, playerName);
+        // player->name = playerName;
+        add_message("set player name successfully!");
+    }
+    return 0;
+}
+
+static duk_ret_t js_get_block (duk_context * ctx) {
+    int type = get_block(
+        duk_to_int32(ctx, 0),
+        duk_to_int32(ctx, 1),
+        duk_to_int32(ctx, 2)
+    );
+    duk_push_int(ctx, type);
+    return 1;
+}
+
 void init_js () {
 
     //js engine startup
@@ -2815,6 +2900,18 @@ void init_js () {
 
     duk_push_c_function(ctx, js_get_player_names, 1);
     duk_put_global_string(ctx, "get_player_names");
+
+    duk_push_c_function(ctx, js_hit_test, 7);
+    duk_put_global_string(ctx, "hit_test");
+
+    duk_push_c_function(ctx, js_log, 1);
+    duk_put_global_string(ctx, "log");
+
+    duk_push_c_function(ctx, js_set_player_name, 2);
+    duk_put_global_string(ctx, "set_player_name");
+
+    duk_push_c_function(ctx, js_get_block, 3);
+    duk_put_global_string(ctx, "get_block");
 }
 
 int main(int argc, char **argv) {

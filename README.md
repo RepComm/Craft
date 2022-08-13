@@ -2,15 +2,53 @@
 
 A forked and modified version of http://www.michaelfogleman.com/craft/
 
-Extra features in this fork:
+### JavaScript features
 - JavaScript (including `/js` command ingame for live eval)
 - Command backlog (UP/DOWN keys while chatting, navigates previous commands)
 
+Get a list of all player names:
+```TypeScript
+get_player_names(out: Array<string>): void;
+```
+
+Set a player's name by its index:
+```TypeScript
+set_player_name(index: number, name: string): void;
+```
+
+Log a single argument into chat console:
+```TypeScript
+log(msg: any): void;
+//if msg: object -> prints JSON.stringify(msg);
+//if msg: array -> same as above
+//if msg: string -> prints string
+//else -> prints duk_safe_to_string (msg); equivalent
+```
+
+Console.log (currently doesn't output to chat):
+```TypeScript
+console.log(...msgs: any[]): undefined;
+```
+
+Set a block:
+```TypeScript
+set_block(x: number, y: number, z: number, type: number): void;
+```
+
+Get target block coordinate:
+```TypeScript
+get_target_block(out: {x:number, y: number, z: number}): void;
+```
+
+Get a block:
+```TypeScript
+get_block(x: number, y: number, z: number): number;
+```
 
 Minecraft clone for Windows, Mac OS X and Linux. Just a few thousand lines of C using modern OpenGL (shaders). Online multiplayer support is included using a Python-based server.
 
 
-![Screenshot](https://i.imgur.com/SH7wcas.png)
+![Screenshot](./example.png)
 
 ### Features
 
