@@ -198,12 +198,25 @@ int chunked(float x) {
     return floorf(roundf(x) / CHUNK_SIZE);
 }
 
+float time_current = 0;
+float time_last = 0;
+float time_delta = 0;
+
+float time_offset = 0;
+
+void updateTime () {
+    time_last = time_current;
+    time_current = glfwGetTime();
+    time_delta = time_current - time_last;
+    time_delta = MIN(time_delta, 0.2);
+    time_delta = MAX(time_delta, 0.0);
+}
+
 float time_of_day() {
     if (g->day_length <= 0) {
         return 0.5;
     }
-    float t;
-    t = glfwGetTime();
+    float t = time_current + time_offset;
     t = t / g->day_length;
     t = t - (int)t;
     return t;
@@ -2111,6 +2124,96 @@ void user_cmd_reset () {
     user_cmd_current = -1;
 }
 
+#define CMD_DOESNT_EXIST -1
+
+#define MAX_COMMAND_HANDLE_LENGTH 16
+struct command_def {
+    char handle[MAX_COMMAND_HANDLE_LENGTH];
+    void (*callback)(char * raw);
+
+    void * javaScriptCallbackAddress;
+};
+#define command_def_p struct command_def *
+
+#define MAX_COMMANDS 128
+struct command_def all_commands[MAX_COMMANDS];
+int next_command_index = 0;
+
+command_def_p command_at(int index) {
+    if (index > CMD_DOESNT_EXIST && index < MAX_COMMANDS) return &all_commands[index];
+    return CMD_DOESNT_EXIST;
+}
+bool command_at_exists (int index) {
+    return (index > CMD_DOESNT_EXIST && index < next_command_index);
+}
+
+command_def_p command_for_handle(char * handle) {
+    for (int i=0; i<next_command_index; i++) {
+        command_def_p cmd = command_at(i);
+        if (cmd == CMD_DOESNT_EXIST) break;
+
+        if (strcmp(cmd->handle, handle) == 0) {
+            return cmd;
+        }
+    }
+    return CMD_DOESNT_EXIST;
+}
+
+int register_command (char * handle, void (*callback)(char * raw), void * javaScriptCallbackAddress) {
+    int handleLen = strlen(handle);
+    if (handleLen > MAX_COMMAND_HANDLE_LENGTH) return -1;
+
+    int result = next_command_index;
+    next_command_index ++;
+
+    command_def_p cmd = command_at(result);
+    if (cmd == 0) return -1;
+
+    strcpy(cmd->handle, handle);
+
+    cmd->callback = callback;
+    cmd->javaScriptCallbackAddress = javaScriptCallbackAddress;
+
+    return result;
+}
+
+void command_trigger (command_def_p cmd, char * raw) {
+    if (cmd->callback) {
+        cmd->callback(raw);
+    } else if (cmd->javaScriptCallbackAddress) {
+
+    } else {
+        //cannot call command, neither native code nor javascript have registered callbacks
+    }
+}
+
+void js_command_callback (char * raw) {
+
+}
+
+static duk_ret_t js_register_command () {
+    const char * handle = duk_get_string(ctx, 0);
+    void * jsCallbackAdr = duk_get_heapptr(ctx, 1);
+
+    int result = register_command(
+        handle,
+        0, //no native code
+        jsCallbackAdr //only js code
+    );
+
+    //add jsCallback to the global command map in JS so it doesn't get garbage collected
+    duk_get_global_string(ctx, "_command_map");
+
+    // _command_map[handle] = jsCallbackAdr
+    duk_push_heapptr(ctx, jsCallbackAdr);
+    duk_put_prop_string(ctx, 0, handle);
+    
+    //return the index in command array
+    duk_push_int(ctx, result);
+
+    return 1;
+}
+
 void parse_command(const char *buffer, int forward) {
 
     //save so we can re-enter previous commands like normal MC/terminals
@@ -2757,7 +2860,7 @@ static duk_ret_t js_get_target_block() {
     duk_push_int(ctx, hitPoint.y);
     duk_put_prop_string(ctx, 0, "y");
 
-    duk_push_int(ctx, hitPoint.x);
+    duk_push_int(ctx, hitPoint.z);
     duk_put_prop_string(ctx, 0, "z");
 
     return 0;
@@ -2874,6 +2977,11 @@ static duk_ret_t js_get_block (duk_context * ctx) {
     return 1;
 }
 
+static duk_ret_t js_set_time (duk_context * ctx) {
+    time_offset = duk_get_number(ctx, 0);
+    return 0;
+}
+
 void init_js () {
 
     //js engine startup
@@ -2912,6 +3020,14 @@ void init_js () {
 
     duk_push_c_function(ctx, js_get_block, 3);
     duk_put_global_string(ctx, "get_block");
+
+    duk_push_c_function(ctx, js_set_time, 1);
+    duk_put_global_string(ctx, "set_time");
+
+    //create a Map<string, function> for storing command callbacks that JS registers
+    duk_push_object(ctx);
+    //var _command_map = {};
+    duk_put_global_string(ctx, "_command_map");
 }
 
 int main(int argc, char **argv) {
@@ -3121,17 +3237,20 @@ int main(int argc, char **argv) {
                 memset(&fps, 0, sizeof(fps));
             }
             update_fps(&fps);
-            double now = glfwGetTime();
-            double dt = now - previous;
-            dt = MIN(dt, 0.2);
-            dt = MAX(dt, 0.0);
-            previous = now;
+            
+            updateTime();
+            
+            // double now = glfwGetTime();
+            // double dt = now - previous;
+            // dt = MIN(dt, 0.2);
+            // dt = MAX(dt, 0.0);
+            // previous = now;
 
             // HANDLE MOUSE INPUT //
             handle_mouse_input();
 
             // HANDLE MOVEMENT //
-            handle_movement(dt);
+            handle_movement( time_delta );//dt);
 
             // HANDLE DATA FROM SERVER //
             char *buffer = client_recv();
@@ -3141,14 +3260,14 @@ int main(int argc, char **argv) {
             }
 
             // FLUSH DATABASE //
-            if (now - last_commit > COMMIT_INTERVAL) {
-                last_commit = now;
+            if ( /**now*/ time_current - last_commit > COMMIT_INTERVAL) {
+                last_commit = time_current; //now;
                 db_commit();
             }
 
             // SEND POSITION TO SERVER //
-            if (now - last_update > 0.1) {
-                last_update = now;
+            if ( /**now*/ time_current - last_update > 0.1) {
+                last_update = time_current; //now;
                 client_position(s->x, s->y, s->z, s->rx, s->ry);
             }
 
