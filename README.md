@@ -50,21 +50,9 @@ Minecraft clone for Windows, Mac OS X and Linux. Just a few thousand lines of C 
 
 ![Screenshot](./example.png)
 
-### Features
-
-* Simple but nice looking terrain generation using perlin / simplex noise.
-* More than 10 types of blocks and more can be added easily.
-* Supports plants (grass, flowers, trees, etc.) and transparency (glass).
-* Simple clouds in the sky (they don't move).
-* Day / night cycles and a textured sky dome.
-* World changes persisted in a sqlite3 database.
-* Multiplayer support!
 
 ### Download
-
-Mac and Windows binaries are available on the website.
-
-http://www.michaelfogleman.com/craft/
+TODO
 
 See below to run from source.
 
@@ -108,31 +96,24 @@ terminal.
     ./craft
 
 ### Multiplayer
-
-After many years, craft.michaelfogleman.com has been taken down. See the [Server](#server) section for info on self-hosting.
+See the [Server](#server) section for info on self-hosting.
 
 #### Client
-
 You can connect to a server with command line arguments...
 
 ```bash
 ./craft [HOST [PORT]]
 ```
 
-Or, with the "/online" command in the game itself.
-    
-    /online [HOST [PORT]]
-
-#### Server
-
-You can run your own server or connect to mine. The server is written in Python
-but requires a compiled DLL so it can perform the terrain generation just like
-the client.
-
-```bash
-gcc -std=c99 -O3 -fPIC -shared -o world -I src -I deps/noise deps/noise/noise.c src/world.c
-python server.py [HOST [PORT]]
+Or, with the "/online" command in the game itself.  
 ```
+/online [HOST [PORT]]
+```
+#### Server
+A rewrite of the server for this specific fork of Craft can be found here:
+https://github.com/RepComm/craft-server
+
+It is written in JavaScript, but it is not ready for production yet.
 
 ### Controls
 
@@ -192,11 +173,6 @@ Teleport to the specified chunk.
     /spawn
 
 Teleport back to the spawn point.
-
-### Screenshot
-
-![Screenshot](https://i.imgur.com/foYz3aN.png)
-
 ### Implementation Details
 
 #### Terrain Generation
