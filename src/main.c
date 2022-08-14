@@ -2386,11 +2386,10 @@ void on_middle_click() {
 }
 
 static duk_ret_t js_input_is_down () {
-    duk_push_boolean(ctx, 
-        input_is_down(
-            duk_get_int(ctx, 0)
-        )
-    );
+    int key = duk_get_int(ctx, 0);
+    bool result = input_is_down(key);
+    duk_push_boolean(ctx, result);
+    return 1;
 }
 
 void on_key(GLFWwindow *window, int key, int scancode, int action, int mods) {
@@ -3030,6 +3029,14 @@ void init_js () {
     duk_put_global_string(ctx, "_command_map");
 }
 
+void js_on_update () {
+    duk_get_global_string(ctx, "on_update");
+    if (duk_get_type(ctx, 0) != DUK_TYPE_UNDEFINED) {
+        duk_pcall(ctx, 0);
+    }
+    duk_pop(ctx);
+}
+
 int main(int argc, char **argv) {
 
     init_js();
@@ -3239,6 +3246,8 @@ int main(int argc, char **argv) {
             update_fps(&fps);
             
             updateTime();
+
+            js_on_update();
             
             // double now = glfwGetTime();
             // double dt = now - previous;
