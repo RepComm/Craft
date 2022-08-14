@@ -29,7 +29,7 @@ input_p input_create( int key) {
     
     input_store_main_end ++;
     
-    printf("input create for key '%c', new size: %i, result ptr: %i\n", key, input_store_main_end, result);
+    // printf("input create for key '%c', new size: %i, result ptr: %i\n", key, input_store_main_end, result);
     
     return result;
 }
