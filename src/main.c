@@ -2386,8 +2386,8 @@ void on_middle_click() {
 }
 
 static duk_ret_t js_input_is_down () {
-    int key = duk_get_int(ctx, 0);
-    bool result = input_is_down(key);
+    char * s = duk_get_string(ctx, 0);
+    bool result = input_char_is_down(s[0]);
     duk_push_boolean(ctx, result);
     return 1;
 }
@@ -2395,8 +2395,7 @@ static duk_ret_t js_input_is_down () {
 void on_key(GLFWwindow *window, int key, int scancode, int action, int mods) {
 
     //new input mechanism
-    input_on_key(key, action != GLFW_RELEASE);
-
+    input_on_key(key, action != GLFW_RELEASE && action == GLFW_PRESS);
 
     int control = mods & (GLFW_MOD_CONTROL | GLFW_MOD_SUPER);
     int exclusive =
@@ -2516,6 +2515,7 @@ void on_key(GLFWwindow *window, int key, int scancode, int action, int mods) {
 }
 
 void on_char(GLFWwindow *window, unsigned int u) {
+
     if (g->suppress_char) {
         g->suppress_char = 0;
         return;
@@ -3021,7 +3021,7 @@ void init_js () {
     duk_put_global_string(ctx, "set_time");
 
     duk_push_c_function(ctx, js_input_is_down, 1);
-    duk_put_global_string(ctx, "input_is_down");
+    duk_put_global_string(ctx, "get_key");
 
     //create a Map<string, function> for storing command callbacks that JS registers
     duk_push_object(ctx);
@@ -3030,6 +3030,8 @@ void init_js () {
 }
 
 void js_on_update () {
+    // if (input_char_is_down('w')) printf("forward");
+
     duk_get_global_string(ctx, "on_update");
     if (duk_get_type(ctx, 0) != DUK_TYPE_UNDEFINED) {
         duk_pcall(ctx, 0);

@@ -6,43 +6,44 @@ A forked and modified version of http://www.michaelfogleman.com/craft/
 - JavaScript (including `/js` command ingame for live eval)
 - Command backlog (UP/DOWN keys while chatting, navigates previous commands)
 
-Get a list of all player names:
 ```TypeScript
+//Get a list of all player names:
 get_player_names(out: Array<string>): void;
-```
 
-Set a player's name by its index:
-```TypeScript
+//Set a player's name by its index:
 set_player_name(index: number, name: string): void;
-```
 
-Log a single argument into chat console:
-```TypeScript
+//Log a single argument into chat console:
 log(msg: any): void;
 //if msg: object -> prints JSON.stringify(msg);
 //if msg: array -> same as above
 //if msg: string -> prints string
 //else -> prints duk_safe_to_string (msg); equivalent
-```
 
-Console.log (currently doesn't output to chat):
-```TypeScript
+
+//Console.log (currently doesn't output to chat):
 console.log(...msgs: any[]): undefined;
-```
 
-Set a block:
-```TypeScript
+//Set a block:
 set_block(x: number, y: number, z: number, type: number): void;
-```
 
-Get target block coordinate:
-```TypeScript
+//Get target block coordinate:
 get_target_block(out: {x:number, y: number, z: number}): void;
+
+//Get a block
+get_block(x: number, y: number, z: number): number;
+
+//Detect if a key is pressed
+get_key(key: string): boolean;
 ```
 
-Get a block:
+Overridable global functions:
 ```TypeScript
-get_block(x: number, y: number, z: number): number;
+function on_update () {
+    //will be called for every animation frame
+    //a good spot for using 'get_key'
+    //a decent substitute until setInterval and requestAnimationFrame are a thing
+}
 ```
 
 Minecraft clone for Windows, Mac OS X and Linux. Just a few thousand lines of C using modern OpenGL (shaders). Online multiplayer support is included using a Python-based server.
