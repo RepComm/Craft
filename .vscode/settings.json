@@ -3,7 +3,23 @@
         "curl.h": "c",
         "linkedlist.h": "c",
         "client.h": "c",
-        "cmath": "c"
+        "cmath": "c",
+        "player.h": "c",
+        "general.h": "c",
+        "model.h": "c",
+        "util.h": "c",
+        "block.h": "c",
+        "glfw3.h": "c",
+        "glew.h": "c",
+        "matrix.h": "c",
+        "chunk.h": "c",
+        "sign.h": "c",
+        "map.h": "c",
+        "math.h": "c",
+        "worker.h": "c",
+        "cube.h": "c",
+        "item.h": "c",
+        "memory.h": "c"
     },
     "cmake.configureOnOpen": false
 }

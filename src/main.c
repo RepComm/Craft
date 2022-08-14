@@ -1,6 +1,5 @@
 #include <GL/glew.h>
 #include <GLFW/glfw3.h>
-// #include <curl/curl.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -19,25 +18,29 @@
 #include "util.h"
 #include "world.h"
 #include "stdbool.h"
-#include "string.h"
+
+#include <string.h>
+//strdup is not part of c99 because reasons
+extern char* strdup(const char*);
 
 #include "./linkedlist.h"
 
 //for js eval
 #include "duktape.h"
 //for js console.log
-#include "./js/duk_console.c"
+#include "./duk_console.h"
 
 //new input mechanisms
-#include "./input/input.c"
+#include "./model.h"
+#include "./input.h"
+// #include "./player.h"
+// #include "./worker.h"
+// #include "./chunk.h"
+// #include "./block.h"
 
-#define MAX_CHUNKS 8192
 #define MAX_PLAYERS 128
 #define WORKERS 4
-#define MAX_TEXT_LENGTH 256
-#define MAX_NAME_LENGTH 32
-#define MAX_PATH_LENGTH 256
-#define MAX_ADDR_LENGTH 256
+// #define MAX_NAME_LENGTH 32
 
 #define ALIGN_LEFT 0
 #define ALIGN_CENTER 1
@@ -46,9 +49,6 @@
 #define MODE_OFFLINE 0
 #define MODE_ONLINE 1
 
-#define WORKER_IDLE 0
-#define WORKER_BUSY 1
-#define WORKER_DONE 2
 
 duk_context *ctx;
 
@@ -79,66 +79,6 @@ void duk_get_coerced_string (duk_context * ctx, duk_idx_t idx, char * out) {
     }
 }
 
-typedef struct {
-    Map map;
-    Map lights;
-    SignList signs;
-    int p;
-    int q;
-    int faces;
-    int sign_faces;
-    int dirty;
-    int miny;
-    int maxy;
-    GLuint buffer;
-    GLuint sign_buffer;
-} Chunk;
-
-typedef struct {
-    int p;
-    int q;
-    int load;
-    Map *block_maps[3][3];
-    Map *light_maps[3][3];
-    int miny;
-    int maxy;
-    int faces;
-    GLfloat *data;
-} WorkerItem;
-
-typedef struct {
-    int index;
-    int state;
-    thrd_t thrd;
-    mtx_t mtx;
-    cnd_t cnd;
-    WorkerItem item;
-} Worker;
-
-typedef struct {
-    int x;
-    int y;
-    int z;
-    int w;
-} Block;
-
-typedef struct {
-    float x;
-    float y;
-    float z;
-    float rx;
-    float ry;
-    float t;
-} State;
-
-typedef struct {
-    int id;
-    char name[MAX_NAME_LENGTH];
-    State state;
-    State state1;
-    State state2;
-    GLuint buffer;
-} Player;
 
 typedef struct {
     GLuint program;
@@ -155,50 +95,8 @@ typedef struct {
     GLuint extra4;
 } Attrib;
 
-typedef struct {
-    GLFWwindow *window;
-    Worker workers[WORKERS];
-    Chunk chunks[MAX_CHUNKS];
-    int chunk_count;
-    int create_radius;
-    int render_radius;
-    int delete_radius;
-    int sign_radius;
-    Player players[MAX_PLAYERS];
-    int player_count;
-    int typing;
-    char typing_buffer[MAX_TEXT_LENGTH];
-    int message_index;
-    char messages[MAX_MESSAGES][MAX_TEXT_LENGTH];
-    int width;
-    int height;
-    int observe1;
-    int observe2;
-    int flying;
-    int item_index;
-    int scale;
-    int ortho;
-    float fov;
-    int suppress_char;
-    int mode;
-    int mode_changed;
-    char db_path[MAX_PATH_LENGTH];
-    char server_addr[MAX_ADDR_LENGTH];
-    int server_port;
-    int day_length;
-    int time_changed;
-    Block block0;
-    Block block1;
-    Block copy0;
-    Block copy1;
-} Model;
-
 static Model model;
 static Model *g = &model;
-
-int chunked(float x) {
-    return floorf(roundf(x) / CHUNK_SIZE);
-}
 
 float time_current = 0;
 float time_last = 0;
@@ -245,13 +143,6 @@ int get_scale_factor() {
     result = MAX(1, result);
     result = MIN(2, result);
     return result;
-}
-
-void get_sight_vector(float rx, float ry, float *vx, float *vy, float *vz) {
-    float m = cosf(ry);
-    *vx = cosf(rx - RADIANS(90)) * m;
-    *vy = sinf(ry);
-    *vz = sinf(rx - RADIANS(90)) * m;
 }
 
 void get_motion_vector(int flying, int sz, int sx, float rx, float ry,
@@ -328,12 +219,6 @@ GLuint gen_plant_buffer(float x, float y, float z, float n, int w) {
     float light = 1;
     make_plant(data, ao, light, x, y, z, n, w, 45);
     return gen_faces(10, 4, data);
-}
-
-GLuint gen_player_buffer(float x, float y, float z, float rx, float ry) {
-    GLfloat *data = malloc_faces(10, 6);
-    make_player(data, x, y, z, rx, ry);
-    return gen_faces(10, 6, data);
 }
 
 GLuint gen_text_buffer(float x, float y, float n, char *text) {
@@ -471,48 +356,6 @@ Player *find_player(int id) {
     return 0;
 }
 
-void update_player(Player *player,
-    float x, float y, float z, float rx, float ry, int interpolate)
-{
-    if (interpolate) {
-        State *s1 = &player->state1;
-        State *s2 = &player->state2;
-        memcpy(s1, s2, sizeof(State));
-        s2->x = x; s2->y = y; s2->z = z; s2->rx = rx; s2->ry = ry;
-        s2->t = glfwGetTime();
-        if (s2->rx - s1->rx > PI) {
-            s1->rx += 2 * PI;
-        }
-        if (s1->rx - s2->rx > PI) {
-            s1->rx -= 2 * PI;
-        }
-    }
-    else {
-        State *s = &player->state;
-        s->x = x; s->y = y; s->z = z; s->rx = rx; s->ry = ry;
-        del_buffer(player->buffer);
-        player->buffer = gen_player_buffer(s->x, s->y, s->z, s->rx, s->ry);
-    }
-}
-
-void interpolate_player(Player *player) {
-    State *s1 = &player->state1;
-    State *s2 = &player->state2;
-    float t1 = s2->t - s1->t;
-    float t2 = glfwGetTime() - s2->t;
-    t1 = MIN(t1, 1);
-    t1 = MAX(t1, 0.1);
-    float p = MIN(t2 / t1, 1);
-    update_player(
-        player,
-        s1->x + (s2->x - s1->x) * p,
-        s1->y + (s2->y - s1->y) * p,
-        s1->z + (s2->z - s1->z) * p,
-        s1->rx + (s2->rx - s1->rx) * p,
-        s1->ry + (s2->ry - s1->ry) * p,
-        0);
-}
-
 void delete_player(int id) {
     Player *player = find_player(id);
     if (!player) {
@@ -531,30 +374,6 @@ void delete_all_players() {
         del_buffer(player->buffer);
     }
     g->player_count = 0;
-}
-
-float player_player_distance(Player *p1, Player *p2) {
-    State *s1 = &p1->state;
-    State *s2 = &p2->state;
-    float x = s2->x - s1->x;
-    float y = s2->y - s1->y;
-    float z = s2->z - s1->z;
-    return sqrtf(x * x + y * y + z * z);
-}
-
-float player_crosshair_distance(Player *p1, Player *p2) {
-    State *s1 = &p1->state;
-    State *s2 = &p2->state;
-    float d = player_player_distance(p1, p2);
-    float vx, vy, vz;
-    get_sight_vector(s1->rx, s1->ry, &vx, &vy, &vz);
-    vx *= d; vy *= d; vz *= d;
-    float px, py, pz;
-    px = s1->x + vx; py = s1->y + vy; pz = s1->z + vz;
-    float x = s2->x - px;
-    float y = s2->y - py;
-    float z = s2->z - pz;
-    return sqrtf(x * x + y * y + z * z);
 }
 
 Player *player_crosshair(Player *player) {
@@ -586,12 +405,6 @@ Chunk *find_chunk(int p, int q) {
         }
     }
     return 0;
-}
-
-int chunk_distance(Chunk *chunk, int p, int q) {
-    int dp = ABS(chunk->p - p);
-    int dq = ABS(chunk->q - q);
-    return MAX(dp, dq);
 }
 
 int chunk_visible(float planes[6][4], int p, int q, int miny, int maxy) {
@@ -651,102 +464,6 @@ int highest_block(float x, float z) {
         } END_MAP_FOR_EACH;
     }
     return result;
-}
-
-int _hit_test(
-    Map *map, float max_distance, int previous,
-    float x, float y, float z,
-    float vx, float vy, float vz,
-    int *hx, int *hy, int *hz)
-{
-    int m = 32;
-    int px = 0;
-    int py = 0;
-    int pz = 0;
-    for (int i = 0; i < max_distance * m; i++) {
-        int nx = roundf(x);
-        int ny = roundf(y);
-        int nz = roundf(z);
-        if (nx != px || ny != py || nz != pz) {
-            int hw = map_get(map, nx, ny, nz);
-            if (hw > 0) {
-                if (previous) {
-                    *hx = px; *hy = py; *hz = pz;
-                }
-                else {
-                    *hx = nx; *hy = ny; *hz = nz;
-                }
-                return hw;
-            }
-            px = nx; py = ny; pz = nz;
-        }
-        x += vx / m; y += vy / m; z += vz / m;
-    }
-    return 0;
-}
-
-int hit_test(
-    int previous, float x, float y, float z, float rx, float ry,
-    int *bx, int *by, int *bz)
-{
-    int result = 0;
-    float best = 0;
-    int p = chunked(x);
-    int q = chunked(z);
-    float vx, vy, vz;
-    get_sight_vector(rx, ry, &vx, &vy, &vz);
-    for (int i = 0; i < g->chunk_count; i++) {
-        Chunk *chunk = g->chunks + i;
-        if (chunk_distance(chunk, p, q) > 1) {
-            continue;
-        }
-        int hx, hy, hz;
-        int hw = _hit_test(&chunk->map, 8, previous,
-            x, y, z, vx, vy, vz, &hx, &hy, &hz);
-        if (hw > 0) {
-            float d = sqrtf(
-                powf(hx - x, 2) + powf(hy - y, 2) + powf(hz - z, 2));
-            if (best == 0 || d < best) {
-                best = d;
-                *bx = hx; *by = hy; *bz = hz;
-                result = hw;
-            }
-        }
-    }
-    return result;
-}
-
-int hit_test_face(Player *player, int *x, int *y, int *z, int *face) {
-    State *s = &player->state;
-    int w = hit_test(0, s->x, s->y, s->z, s->rx, s->ry, x, y, z);
-    if (is_obstacle(w)) {
-        int hx, hy, hz;
-        hit_test(1, s->x, s->y, s->z, s->rx, s->ry, &hx, &hy, &hz);
-        int dx = hx - *x;
-        int dy = hy - *y;
-        int dz = hz - *z;
-        if (dx == -1 && dy == 0 && dz == 0) {
-            *face = 0; return 1;
-        }
-        if (dx == 1 && dy == 0 && dz == 0) {
-            *face = 1; return 1;
-        }
-        if (dx == 0 && dy == 0 && dz == -1) {
-            *face = 2; return 1;
-        }
-        if (dx == 0 && dy == 0 && dz == 1) {
-            *face = 3; return 1;
-        }
-        if (dx == 0 && dy == 1 && dz == 0) {
-            int degrees = roundf(DEGREES(atan2f(s->x - hx, s->z - hz)));
-            if (degrees < 0) {
-                degrees += 360;
-            }
-            int top = ((degrees + 45) / 90) % 4;
-            *face = 4 + top; return 1;
-        }
-    }
-    return 0;
 }
 
 int collide(int height, float *x, float *y, float *z) {
@@ -1730,7 +1447,7 @@ void render_sign(Attrib *attrib, Player *player) {
         return;
     }
     int x, y, z, face;
-    if (!hit_test_face(player, &x, &y, &z, &face)) {
+    if (!hit_test_face(player, &x, &y, &z, &face, g )) {
         return;
     }
     State *s = &player->state;
@@ -1791,7 +1508,7 @@ void render_wireframe(Attrib *attrib, Player *player) {
         matrix, g->width, g->height,
         s->x, s->y, s->z, s->rx, s->ry, g->fov, g->ortho, g->render_radius);
     int hx, hy, hz;
-    int hw = hit_test(0, s->x, s->y, s->z, s->rx, s->ry, &hx, &hy, &hz);
+    int hw = hit_test(0, s->x, s->y, s->z, s->rx, s->ry, &hx, &hy, &hz, g);
     if (is_obstacle(hw)) {
         glUseProgram(attrib->program);
         glLineWidth(1);
@@ -2108,8 +1825,6 @@ void user_cmd_reset () {
     user_cmd_current = -1;
 }
 
-#define CMD_DOESNT_EXIST -1
-
 #define MAX_COMMAND_HANDLE_LENGTH 16
 struct command_def {
     char handle[MAX_COMMAND_HANDLE_LENGTH];
@@ -2124,26 +1839,26 @@ struct command_def all_commands[MAX_COMMANDS];
 int next_command_index = 0;
 
 command_def_p command_at(int index) {
-    if (index > CMD_DOESNT_EXIST && index < MAX_COMMANDS) return &all_commands[index];
-    return CMD_DOESNT_EXIST;
+    if (index > -1 && index < MAX_COMMANDS) return &all_commands[index];
+    return 0; //return null
 }
 bool command_at_exists (int index) {
-    return (index > CMD_DOESNT_EXIST && index < next_command_index);
+    return (index > -1 && index < next_command_index);
 }
 
 command_def_p command_for_handle(char * handle) {
     for (int i=0; i<next_command_index; i++) {
         command_def_p cmd = command_at(i);
-        if (cmd == CMD_DOESNT_EXIST) break;
+        if (cmd == 0) break;
 
         if (strcmp(cmd->handle, handle) == 0) {
             return cmd;
         }
     }
-    return CMD_DOESNT_EXIST;
+    return 0;
 }
 
-int register_command (char * handle, void (*callback)(char * raw), void * javaScriptCallbackAddress) {
+int register_command (const char * handle, void (*callback)(char * raw), void * javaScriptCallbackAddress) {
     int handleLen = strlen(handle);
     if (handleLen > MAX_COMMAND_HANDLE_LENGTH) return -1;
 
@@ -2342,7 +2057,7 @@ void parse_command(const char *buffer, int forward) {
 void on_light() {
     State *s = &g->players->state;
     int hx, hy, hz;
-    int hw = hit_test(0, s->x, s->y, s->z, s->rx, s->ry, &hx, &hy, &hz);
+    int hw = hit_test(0, s->x, s->y, s->z, s->rx, s->ry, &hx, &hy, &hz, g);
     if (hy > 0 && hy < 256 && is_destructable(hw)) {
         toggle_light(hx, hy, hz);
     }
@@ -2351,7 +2066,7 @@ void on_light() {
 void on_left_click() {
     State *s = &g->players->state;
     int hx, hy, hz;
-    int hw = hit_test(0, s->x, s->y, s->z, s->rx, s->ry, &hx, &hy, &hz);
+    int hw = hit_test(0, s->x, s->y, s->z, s->rx, s->ry, &hx, &hy, &hz, g);
     if (hy > 0 && hy < 256 && is_destructable(hw)) {
         set_block(hx, hy, hz, 0);
         record_block(hx, hy, hz, 0);
@@ -2364,7 +2079,7 @@ void on_left_click() {
 void on_right_click() {
     State *s = &g->players->state;
     int hx, hy, hz;
-    int hw = hit_test(1, s->x, s->y, s->z, s->rx, s->ry, &hx, &hy, &hz);
+    int hw = hit_test(1, s->x, s->y, s->z, s->rx, s->ry, &hx, &hy, &hz, g);
     if (hy > 0 && hy < 256 && is_obstacle(hw)) {
         if (!player_intersects_block(2, s->x, s->y, s->z, hx, hy, hz)) {
             set_block(hx, hy, hz, items[g->item_index]);
@@ -2376,7 +2091,7 @@ void on_right_click() {
 void on_middle_click() {
     State *s = &g->players->state;
     int hx, hy, hz;
-    int hw = hit_test(0, s->x, s->y, s->z, s->rx, s->ry, &hx, &hy, &hz);
+    int hw = hit_test(0, s->x, s->y, s->z, s->rx, s->ry, &hx, &hy, &hz, g);
     for (int i = 0; i < item_count; i++) {
         if (items[i] == hw) {
             g->item_index = i;
@@ -2386,7 +2101,7 @@ void on_middle_click() {
 }
 
 static duk_ret_t js_input_is_down () {
-    char * s = duk_get_string(ctx, 0);
+    const char * s = duk_get_string(ctx, 0);
     bool result = input_char_is_down(s[0]);
     duk_push_boolean(ctx, result);
     return 1;
@@ -2453,7 +2168,7 @@ void on_key(GLFWwindow *window, int key, int scancode, int action, int mods) {
                 if (g->typing_buffer[0] == CRAFT_KEY_SIGN) {
                     Player *player = g->players;
                     int x, y, z, face;
-                    if (hit_test_face(player, &x, &y, &z, &face)) {
+                    if (hit_test_face(player, &x, &y, &z, &face, g  )) {
                         set_sign(x, y, z, face, g->typing_buffer + 1);
                     }
                 }
@@ -2650,6 +2365,7 @@ void handle_mouse_input() {
 }
 
 void handle_movement(double dt) {
+    //TODO - handle controllers such as elytra here
     static float dy = 0;
     State *s = &g->players->state;
     int sz = 0;
@@ -2838,7 +2554,8 @@ bool get_target_block (XYZp hitPoint) {
     int hw = hit_test(0, s->x, s->y, s->z, s->rx, s->ry,
         &hitPoint->x,
         &hitPoint->y,
-        &hitPoint->z
+        &hitPoint->z,
+        g
     );
     if (hitPoint->x > 0 && hitPoint->y < 256 && is_destructable(hw)) {
         return true;
@@ -2875,7 +2592,7 @@ static duk_ret_t js_hit_test () {
 
     int bx, by, bz, bt;
 
-    bt = hit_test(previous, x, y, z, rx, ry, &bx, &by, &bz);
+    bt = hit_test(previous, x, y, z, rx, ry, &bx, &by, &bz, g);
 
     duk_push_int(ctx, bx);
     duk_put_prop_string(ctx, 6, "x");
@@ -2932,7 +2649,7 @@ static duk_ret_t js_get_player_names (duk_context * ctx) {
 
 static duk_ret_t js_log (duk_context * ctx) {
     duk_int_t type = duk_get_type(ctx, 0);
-    char * msg;
+    const char * msg;
     if (type == DUK_TYPE_OBJECT) {
         msg = duk_json_encode(ctx, 0);
     } else if (type == DUK_TYPE_STRING) {
@@ -2952,7 +2669,7 @@ static duk_ret_t js_set_player_name(duk_context * ctx) {
         add_message("Index is greater than player count!");
         return 0;
     }
-    char * playerName = duk_get_string(ctx, 1);
+    const char * playerName = duk_get_string(ctx, 1);
 
     Player * player = g->players + playerIndex;
     if (player != 0 && playerName != 0) {
@@ -3361,7 +3078,7 @@ int main(int argc, char **argv) {
                         other->name);
                 }
             }
-
+        
             // RENDER PICTURE IN PICTURE //
             if (g->observe2) {
                 player = g->players + g->observe2;

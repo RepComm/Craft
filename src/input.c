@@ -4,7 +4,7 @@
 
 #include "stdbool.h"
 #include "stdio.h"
-#include "../../deps/glfw/include/GLFW/glfw3.h"
+#include <GLFW/glfw3.h>
 
 struct input {
      int u;
