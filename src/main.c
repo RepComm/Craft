@@ -49,36 +49,7 @@ extern char* strdup(const char*);
 #define MODE_OFFLINE 0
 #define MODE_ONLINE 1
 
-
 duk_context *ctx;
-
-void duk_get_coerced_string (duk_context * ctx, duk_idx_t idx, char * out) {
-    duk_int_t type = duk_get_type(ctx, idx);
-
-    if (type == DUK_TYPE_NUMBER) {
-        duk_double_t d = duk_get_number(ctx, idx);
-        sprintf(out, "%lf", d);
-    } else if (type == DUK_TYPE_BOOLEAN) {
-        duk_bool_t b = duk_get_boolean(ctx, idx);
-        if(b) sprintf(out, "true");
-        else sprintf(out, "false");
-    } else if (type == DUK_TYPE_BUFFER) {
-        sprintf(out, "[Buffer]");
-    } else if (type == DUK_TYPE_OBJECT) {
-        sprintf(out, "[Object]");
-    } else if (type == DUK_TYPE_NULL) {
-        sprintf(out, "null");
-    } else if (type == DUK_TYPE_STRING) {
-        sprintf(out, "%s", duk_get_string(ctx, idx));
-    } else if (type == DUK_TYPE_UNDEFINED) {
-        sprintf(out, "undefined");
-    } else if (type == DUK_TYPE_LIGHTFUNC) {
-        sprintf(out, "[Function]");
-    } else {
-        sprintf(out, "unknown");
-    }
-}
-
 
 typedef struct {
     GLuint program;
@@ -94,9 +65,6 @@ typedef struct {
     GLuint extra3;
     GLuint extra4;
 } Attrib;
-
-static Model model;
-static Model *g = &model;
 
 float time_current = 0;
 float time_last = 0;
@@ -990,37 +958,6 @@ void create_chunk(Chunk *chunk, int p, int q) {
     load_chunk(item);
 
     request_chunk(p, q);
-}
-
-void delete_chunks() {
-    int count = g->chunk_count;
-    State *s1 = &g->players->state;
-    State *s2 = &(g->players + g->observe1)->state;
-    State *s3 = &(g->players + g->observe2)->state;
-    State *states[3] = {s1, s2, s3};
-    for (int i = 0; i < count; i++) {
-        Chunk *chunk = g->chunks + i;
-        int delete = 1;
-        for (int j = 0; j < 3; j++) {
-            State *s = states[j];
-            int p = chunked(s->x);
-            int q = chunked(s->z);
-            if (chunk_distance(chunk, p, q) < g->delete_radius) {
-                delete = 0;
-                break;
-            }
-        }
-        if (delete) {
-            map_free(&chunk->map);
-            map_free(&chunk->lights);
-            sign_list_free(&chunk->signs);
-            del_buffer(chunk->buffer);
-            del_buffer(chunk->sign_buffer);
-            Chunk *other = g->chunks + (--count);
-            memcpy(chunk, other, sizeof(Chunk));
-        }
-    }
-    g->chunk_count = count;
 }
 
 void delete_all_chunks() {
@@ -2336,7 +2273,17 @@ void handle_mouse_input() {
         glfwGetInputMode(g->window, GLFW_CURSOR) == GLFW_CURSOR_DISABLED;
     static double px = 0;
     static double py = 0;
-    State *s = &g->players->state;
+
+    Player * pA = Model_get_player(g, 0);
+    Player * pB = get_player(0);
+
+    printf("%i == %i ?\n", pA, pB);
+
+    Player * p = Model_get_player(g, 0);
+    // Player * p = get_player(0);
+    State * s = &p->state;
+
+    // State *s = &g->players->state;
     if (exclusive && (px || py)) {
         double mx, my;
         glfwGetCursorPos(g->window, &mx, &my);

@@ -1,4 +1,4 @@
 
-cmake -G "MinGW Makefiles"
+cmake -G "MinGW Makefiles" -H.
 
 mingw32-make

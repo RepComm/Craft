@@ -54,6 +54,20 @@ typedef struct {
     Block copy0;
     Block copy1;
 } Model;
+
+static Model model;
+static Model * g = &model;
+
+Player * Model_get_player(Model * m, int index) {
+    return &m->players[index];
+}
+Player * get_player(int index) {
+    Model * m = g;
+    
+    return &m->players[index];
+    // return Model_get_player(g, index);
+}
+
 int hit_test(
     int previous, float x, float y, float z, float rx, float ry,
     int *bx, int *by, int *bz, Model * g) {
@@ -117,6 +131,35 @@ int hit_test_face(Player *player, int *x, int *y, int *z, int *face, Model * g) 
     return 0;
 }
 
-
+void delete_chunks() {
+    int count = g->chunk_count;
+    State *s1 = &g->players->state;
+    State *s2 = &(g->players + g->observe1)->state;
+    State *s3 = &(g->players + g->observe2)->state;
+    State *states[3] = {s1, s2, s3};
+    for (int i = 0; i < count; i++) {
+        Chunk *chunk = g->chunks + i;
+        int delete = 1;
+        for (int j = 0; j < 3; j++) {
+            State *s = states[j];
+            int p = chunked(s->x);
+            int q = chunked(s->z);
+            if (chunk_distance(chunk, p, q) < g->delete_radius) {
+                delete = 0;
+                break;
+            }
+        }
+        if (delete) {
+            map_free(&chunk->map);
+            map_free(&chunk->lights);
+            sign_list_free(&chunk->signs);
+            del_buffer(chunk->buffer);
+            del_buffer(chunk->sign_buffer);
+            Chunk *other = g->chunks + (--count);
+            memcpy(chunk, other, sizeof(Chunk));
+        }
+    }
+    g->chunk_count = count;
+}
 
 #endif

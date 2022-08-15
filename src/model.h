@@ -54,12 +54,19 @@ typedef struct {
     Block copy0;
     Block copy1;
 } Model;
+
+static Model model;
+static Model *g = &model;
+
+Player * Model_get_player(Model * m, int index);
+Player * get_player(int index);
+
 int hit_test(
     int previous, float x, float y, float z, float rx, float ry,
     int *bx, int *by, int *bz, Model * g);
 
 int hit_test_face(Player *player, int *x, int *y, int *z, int *face, Model * g);
 
-
+void delete_chunks();
 
 #endif
